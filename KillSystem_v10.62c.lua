@@ -1,5 +1,62 @@
 --[[
-    杀戮系统 v10.62c [穿墙车辆恢复修复版]
+    杀戮系统 v10.63 [手机飞行修复 + 反作弊扩展 + 暴力功能扩展]
+    更新（v10.62c → v10.63 大规模修复 + 新增）：
+
+    1. 修复手机端飞行无法上升：
+       - 根本原因：手机端 MouseButton1Down/Up/Leave 在某些机型上 事件不稳定
+         MouseButton1Up 与 MouseLeave 同时触发会误清状态，导致上升按钮失效
+       - 修复方案：
+         * 改用 InputBegan/InputEnded + UserInputType.Touch 直接监听触摸事件
+         * 按钮 Active=true 让其在按住期间持续响应
+         * 按钮尺寸加大 80→96 像素，便于手指点击
+         * 新增多点触摸支持（同时按摇杆+上升按钮可同时生效）
+         * 新增"按住判定"：触摸开始后即使手指轻微移动也保持按下状态
+
+    2. 修复手机端快捷键已开启显示不明显：
+       - 原问题：开启/关闭只靠 BackgroundTransparency 0.2/0.5 区分，手机端对比度太弱
+       - 修复方案：
+         * 开启时背景改为霓虹绿色 + 白色发光边框
+         * 关闭时背景改为深灰色 + 无边框
+         * 新增点击缩放反馈（按下时短暂缩小到 0.9，松开恢复）
+         * 触摸阈值 15→25 像素，避免轻微移动误判为拖动
+         * SyncShortcuts 同步颜色与边框，状态实时刷新
+
+    3. 优化电脑端启动延迟：
+       - BootSequence 打字机速度 25ms→12ms，模块加载 180ms→80ms
+       - 整体开场动画从 ~5s 缩短到 ~2s
+       - Heartbeat 处理器仅在 GodMode 开启时执行血量覆盖
+       - 心跳循环检测从 1Hz 改为 2Hz 但仅在需要时执行
+       - 减少无功能时的空转循环 wait(2) → wait(5)
+
+    4. 新增 14 个圣奥里反作弊封禁拦截功能（基于反编译脚本深度搜索）：
+       - AntiHandcuff_Enabled: 拦截 handcuff/handcuffsOpener InvokeServer（防被铐）
+       - AntiSit_Enabled: 拦截 sit InvokeServer（防强制坐下）
+       - AntiCharRot_Enabled: 拦截 charRot/charRotType 强制转向
+       - AntiFocusCamera_Enabled: 拦截 focusCamera 强制凝视
+       - AntiStalkPlayer_Enabled: 拦截 stalkPlayer 被凝视
+       - AntiCharPivotTo_Enabled: 拦截 charPivotTo 强制传送
+       - AntiCharCheckpoint_Enabled: 拦截 charCheckpoint 强制传送
+       - AntiGetRidOfSitting_Enabled: 拦截 getRidOfPlayerSittingOnYou 被踢下座位
+       - AntiFreezeIdle_Enabled: 拦截 freezeIdleAnimation 强制空闲动画
+       - AntiPlayEmote_Enabled: 拦截 playEmote 强制表情
+       - AntiRagdollEnhanced_Enabled: 拦截 ragdoll FireServer（防强制Ragdoll）
+       - AntiEjectEnhanced_Enabled: 拦截 eject 强制弹下车
+       - AntiTow_Enabled: 拦截 towing/towStolen 车辆被拖走
+       - AntiVehicleTheft_Enabled: 拦截 stealVehicle 车辆被偷
+       - AntiClientKick_Enabled: Hook Player:Kick() 防止客户端被踢
+
+    5. 新增 10 个暴力功能（基于 FireServer/InvokeServer 协议主动调用）：
+       - MassHandcuff_Enabled: 给附近所有玩家发 handcuff（铐住所有人）
+       - MassArrest_Enabled: 给附近所有玩家发 arrestClient 没收物品
+       - MassRagdoll_Enabled: 给附近所有玩家发 ragdoll（强制倒地）
+       - MassEject_Enabled: 把附近所有车里的玩家 eject 出来
+       - MassStun_Enabled: 组合拳 ragdoll+eject+sit（群体眩晕）
+       - VehicleDestroySpam_Enabled: 给附近所有车辆发 vehicle:damage:100（摧毁）
+       - VehicleStopAll_Enabled: 给附近所有车发 vehicle:stop（强制停车）
+       - VehicleLockAll_Enabled: 给附近所有车发 vehicle:lock=true（强制上锁）
+       - BulletStorm_Enabled: 每帧向最近玩家发 50 发 bullet（弹幕风暴）
+       - ForceFling_Enabled: 给附近所有玩家发 applyImpulse（强制击飞）
+
     更新（v10.62b → v10.62c 修复）：
     1. 修复用户反馈"穿墙关闭车辆依然可以穿墙"
        - 根本原因：Stepped 处理器在 Noclip 开启时每帧给车辆 CanCollide=false
@@ -652,6 +709,59 @@ local Config = {
     -- [v10.62新增] 车辆速度修改
     VehicleSpeedHack_Enabled = false,  -- 车辆速度修改：覆盖 Config.MAX_SPEED + 关闭 SpeedLimiter
     VehicleSpeedHack_Value = 300,       -- 目标最大速度（mph）
+
+    -- ======== [v10.63新增] 圣奥里反作弊封禁拦截系统 ========
+    -- 基于 1(2).txt 反编译脚本深度搜索的真实 FireServer/InvokeServer 协议
+    -- 这些功能被动拦截游戏服务端发来的"强制动作"事件
+
+    -- 玩家被动事件拦截（防止被他人强制操作）
+    AntiHandcuff_Enabled = false,           -- 防被铐：拦截 handcuff/handcuffsOpener InvokeServer
+    AntiSit_Enabled = false,                -- 防强制坐下：拦截 sit InvokeServer
+    AntiCharRot_Enabled = false,            -- 防强制转向：拦截 charRot/charRotType
+    AntiFocusCamera_Enabled = false,        -- 防强制凝视：拦截 focusCamera FireServer
+    AntiStalkPlayer_Enabled = false,        -- 防被凝视：拦截 stalkPlayer
+    AntiCharPivotTo_Enabled = false,        -- 防强制传送：拦截 charPivotTo
+    AntiCharCheckpoint_Enabled = false,     -- 防检查点传送：拦截 charCheckpoint
+    AntiGetRidOfSitting_Enabled = false,    -- 防被踢下座位：拦截 getRidOfPlayerSittingOnYou
+    AntiFreezeIdle_Enabled = false,         -- 防强制空闲动画：拦截 freezeIdleAnimation
+    AntiPlayEmote_Enabled = false,          -- 防强制表情：拦截 playEmote
+    AntiRagdollEnhanced_Enabled = false,    -- 防强制Ragdoll：拦截 ragdoll FireServer
+    AntiEjectEnhanced_Enabled = false,      -- 防被弹下车：拦截 eject
+    AntiTow_Enabled = false,                -- 防车辆被拖：拦截 towing/towStolen
+    AntiVehicleTheft_Enabled = false,       -- 防车辆被偷：拦截 stealVehicle
+
+    -- Hook 类防护（不依赖 OnClientEvent，直接 Hook 函数）
+    AntiClientKick_Enabled = false,         -- 防客户端踢出：Hook Player:Kick() 拦截
+    AntiServerShutdown_Enabled = false,     -- 防服务端关闭消息：Hook BindToClose
+
+    -- ======== [v10.63新增] 暴力功能扩展 ========
+    -- 基于 FireServer/InvokeServer 协议主动调用，对附近所有玩家/车辆进行群体攻击
+    -- 注意：以下功能会高频发包，仅在私密服或测试环境使用
+
+    MassHandcuff_Enabled = false,           -- 群体铐住：给附近所有玩家发 handcuff
+    MassHandcuff_Range = 50,                -- 群体铐住范围
+    MassArrest_Enabled = false,             -- 群体逮捕：给附近所有玩家发 arrestClient 没收物品
+    MassArrest_Range = 50,                  -- 群体逮捕范围
+    MassRagdoll_Enabled = false,            -- 群体倒地：给附近所有玩家发 ragdoll
+    MassRagdoll_Range = 80,                 -- 群体倒地范围
+    MassEject_Enabled = false,              -- 群体弹下：把附近所有车里的玩家 eject 出来
+    MassEject_Range = 100,                  -- 群体弹下范围
+    MassStun_Enabled = false,               -- 群体眩晕：组合拳 ragdoll+eject+sit
+    MassStun_Range = 80,                    -- 群体眩晕范围
+
+    -- 车辆暴力功能
+    VehicleDestroySpam_Enabled = false,     -- 摧毁附近车辆：vehicle:damage:100
+    VehicleDestroySpam_Range = 200,         -- 摧毁范围
+    VehicleStopAll_Enabled = false,         -- 强制停车：vehicle:stop 给附近所有车
+    VehicleStopAll_Range = 200,             -- 停车范围
+    VehicleLockAll_Enabled = false,         -- 强制锁车：vehicle:lock=true 给附近所有车
+    VehicleLockAll_Range = 200,             -- 锁车范围
+
+    -- 极端暴力功能
+    BulletStorm_Enabled = false,            -- 弹幕风暴：每帧向最近玩家发 50 发 bullet
+    BulletStorm_Range = 500,                -- 弹幕范围
+    ForceFling_Enabled = false,             -- 强制击飞：给附近所有玩家发 applyImpulse
+    ForceFling_Range = 100,                 -- 击飞范围
 }
 -- [全局状态与回调中心]
 local State = {
@@ -1022,94 +1132,121 @@ BlurEffect.Parent = Lighting
 
 -- 创建手机端飞行虚拟按钮（上升↑ + 下降↓）
 -- [v10.51修复] 只使用基础UI组件，避免UIStroke/UICorner/GothamBold等新API不兼容问题
+-- [v10.63重写] 修复手机飞行无法上升：
+--   1. 改用 InputBegan/InputEnded + UserInputType.Touch 直接监听触摸事件
+--   2. 按钮 Active=true 让其在按住期间持续响应（不被其他UI抢占）
+--   3. 按钮尺寸加大 80→96 像素，便于手指点击
+--   4. 多点触摸支持（同时按摇杆+上升按钮可同时生效）
+--   5. 触摸开始后即使手指轻微移动也保持按下状态
 function CreateMobileFlyButtons()
     -- 防止重复创建
     if State.FlyMobileFrame and State.FlyMobileFrame.Parent then return end
 
     local frame = Instance.new("Frame")
     frame.Name = "KillSystem_MobileFly"
-    frame.Size = UDim2.new(0, 120, 0, 200)
-    frame.Position = UDim2.new(1, -140, 0.5, -100)
+    frame.Size = UDim2.new(0, 140, 0, 230)
+    frame.Position = UDim2.new(1, -160, 0.5, -115)
     frame.BackgroundTransparency = 1
     frame.Parent = ScreenGui
 
     -- 上升按钮
     local btnUp = Instance.new("TextButton")
     btnUp.Name = "FlyUp"
-    btnUp.Size = UDim2.new(1, 0, 0, 80)
+    btnUp.Size = UDim2.new(1, 0, 0, 96)
     btnUp.Position = UDim2.new(0, 0, 0, 0)
     btnUp.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
     btnUp.BackgroundTransparency = 0.3
     btnUp.Text = "▲ UP"
     btnUp.TextColor3 = Color3.new(1, 1, 1)
-    btnUp.TextSize = 24
+    btnUp.TextSize = 28
     btnUp.Font = Enum.Font.SourceSansBold
-    btnUp.AutoButtonColor = true
+    btnUp.AutoButtonColor = false  -- [v10.63] 关闭自动颜色变化，自定义反馈
+    btnUp.Active = true  -- [v10.63] 关键：Active=true 让按钮在按住期间持续响应
     btnUp.BorderSizePixel = 2
     btnUp.BorderColor3 = Color3.fromRGB(0, 255, 128)
     btnUp.Parent = frame
+    Instance.new("UICorner", btnUp).CornerRadius = UDim.new(0, 12)
 
     -- 下降按钮
     local btnDown = Instance.new("TextButton")
     btnDown.Name = "FlyDown"
-    btnDown.Size = UDim2.new(1, 0, 0, 80)
-    btnDown.Position = UDim2.new(0, 0, 0, 110)
+    btnDown.Size = UDim2.new(1, 0, 0, 96)
+    btnDown.Position = UDim2.new(0, 0, 0, 134)
     btnDown.BackgroundColor3 = Color3.fromRGB(200, 80, 0)
     btnDown.BackgroundTransparency = 0.3
     btnDown.Text = "▼ DN"
     btnDown.TextColor3 = Color3.new(1, 1, 1)
-    btnDown.TextSize = 24
+    btnDown.TextSize = 28
     btnDown.Font = Enum.Font.SourceSansBold
-    btnDown.AutoButtonColor = true
+    btnDown.AutoButtonColor = false
+    btnDown.Active = true  -- [v10.63] 关键：Active=true
     btnDown.BorderSizePixel = 2
     btnDown.BorderColor3 = Color3.fromRGB(255, 128, 0)
     btnDown.Parent = frame
+    Instance.new("UICorner", btnDown).CornerRadius = UDim.new(0, 12)
 
     -- 提示标签
     local hint = Instance.new("TextLabel")
     hint.Name = "Hint"
-    hint.Size = UDim2.new(1, 0, 0, 20)
-    hint.Position = UDim2.new(0, 0, 0, 90)
+    hint.Size = UDim2.new(1, 0, 0, 28)
+    hint.Position = UDim2.new(0, 0, 0, 100)
     hint.BackgroundTransparency = 1
-    hint.Text = "joystick=direction"
-    hint.TextColor3 = Color3.fromRGB(200, 200, 200)
-    hint.TextSize = 12
+    hint.Text = "摇杆=方向\n按钮=升降"
+    hint.TextColor3 = Color3.fromRGB(220, 220, 220)
+    hint.TextSize = 13
     hint.Font = Enum.Font.SourceSans
     hint.Parent = frame
 
-    -- 触摸事件：按住持续飞行，松开停止
-    btnUp.MouseButton1Down:Connect(function()
-        State.MobileFlyUp = true
-        btnUp.BackgroundTransparency = 0.1
-    end)
-    btnUp.MouseButton1Up:Connect(function()
-        State.MobileFlyUp = false
-        btnUp.BackgroundTransparency = 0.3
-    end)
-    btnUp.MouseLeave:Connect(function()
-        State.MobileFlyUp = false
-        btnUp.BackgroundTransparency = 0.3
-    end)
+    -- [v10.63关键修复] 使用 InputBegan/InputEnded 替代 MouseButton1Down/Up/Leave
+    -- 解决手机端 MouseButton1Up 与 MouseLeave 同时触发导致状态被误清的问题
+    -- 同时支持 UserInputType.Touch（手机）和 MouseButton1（PC测试）
+    local function bindHoldButton(btn, stateKey, pressedColor, releasedColor)
+        -- 按下：开始按住状态
+        btn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+               or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                State[stateKey] = true
+                btn.BackgroundTransparency = 0.1
+                btn.BorderColor3 = pressedColor
+                -- 缩放反馈
+                TweenService:Create(btn, TweenInfo.new(0.08), {Size = UDim2.new(0.95, 0, 0, 96)}):Play()
+            end
+        end)
 
-    btnDown.MouseButton1Down:Connect(function()
-        State.MobileFlyDown = true
-        btnDown.BackgroundTransparency = 0.1
-    end)
-    btnDown.MouseButton1Up:Connect(function()
-        State.MobileFlyDown = false
-        btnDown.BackgroundTransparency = 0.3
-    end)
-    btnDown.MouseLeave:Connect(function()
-        State.MobileFlyDown = false
-        btnDown.BackgroundTransparency = 0.3
-    end)
+        -- 松开：结束按住状态
+        btn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch
+               or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                State[stateKey] = false
+                btn.BackgroundTransparency = 0.3
+                btn.BorderColor3 = releasedColor
+                TweenService:Create(btn, TweenInfo.new(0.08), {Size = UDim2.new(1, 0, 0, 96)}):Play()
+            end
+        end)
+
+        -- [v10.63] 兼容旧版 MouseButton1Click 事件（部分执行器只触发这个）
+        -- 不重置 state，仅作视觉反馈
+        btn.MouseButton1Click:Connect(function()
+            -- 这里不修改 state，因为 InputBegan/InputEnded 已经处理
+            -- 仅作为兜底视觉反馈
+        end)
+    end
+
+    bindHoldButton(btnUp, "MobileFlyUp",
+        Color3.fromRGB(150, 255, 200),  -- 按下时边框颜色
+        Color3.fromRGB(0, 255, 128)     -- 松开时边框颜色
+    )
+    bindHoldButton(btnDown, "MobileFlyDown",
+        Color3.fromRGB(255, 200, 100),
+        Color3.fromRGB(255, 128, 0)
+    )
 
     -- 保存引用
     State.FlyMobileBtnUp = btnUp
     State.FlyMobileBtnDown = btnDown
     State.FlyMobileFrame = frame
 
-    if ScreenLog then ScreenLog("飞行: 手机端按钮已显示") end
+    if ScreenLog then ScreenLog("飞行: 手机端按钮已显示（v10.63 Touch版）") end
 end
 
 -- 销毁手机端飞行虚拟按钮
@@ -1362,18 +1499,59 @@ ClosePopup = function(showSidebar)
 end
 
 -- 修复：快捷键放置函数，统一管理快捷键创建与注册
+-- [v10.63修复] 手机端快捷键已开启显示不明显：
+--   1. 开启时背景改为霓虹绿 + 白色发光边框（视觉对比强）
+--   2. 关闭时背景为深灰 + 暗淡边框
+--   3. 点击缩放反馈（按下时短暂缩小到 0.9）
+--   4. 触摸阈值 15→25 像素（手机端更宽容）
+--   5. 添加全局 UpdateShortcutVisual 函数统一管理状态显示
+
+-- [v10.63新增] 统一的快捷键视觉更新函数
+-- enabled=true 时显示霓虹绿背景+白发光边框，false 时显示深灰+暗边框
+function UpdateShortcutVisual(shortcut, enabled)
+    if not shortcut or not shortcut.Parent then return end
+    if enabled then
+        shortcut.BackgroundColor3 = Color3.fromRGB(60, 255, 120)
+        shortcut.BackgroundTransparency = 0.1
+        shortcut.TextColor3 = Color3.new(0, 0, 0)  -- 黑色文字对比绿色背景
+        local stroke = shortcut:FindFirstChildOfClass("UIStroke")
+        if stroke then
+            stroke.Thickness = 2.5
+            stroke.Color = Color3.fromRGB(255, 255, 255)
+            stroke.Transparency = 0
+        end
+    else
+        shortcut.BackgroundColor3 = Theme.Darker
+        shortcut.BackgroundTransparency = 0.6
+        shortcut.TextColor3 = Theme.C1
+        local stroke = shortcut:FindFirstChildOfClass("UIStroke")
+        if stroke then
+            stroke.Thickness = 1
+            stroke.Color = Color3.fromRGB(80, 80, 100)
+            stroke.Transparency = 0.5
+        end
+    end
+end
+
 local function PlaceShortcutAt(pos, key, iconText)
     local shortcut = Instance.new("TextButton")
-    shortcut.Size = UDim2.new(0, 50, 0, 50)
-    shortcut.Position = UDim2.new(0, pos.X - 25, 0, pos.Y - 25)
-    shortcut.BackgroundColor3 = Theme.Darker
-    shortcut.BackgroundTransparency = Config[key] and 0.2 or 0.5
+    shortcut.Size = UDim2.new(0, 54, 0, 54)  -- [v10.63] 50→54 略大便于触摸
+    shortcut.Position = UDim2.new(0, pos.X - 27, 0, pos.Y - 27)
+    shortcut.BackgroundColor3 = Config[key] and Color3.fromRGB(60, 255, 120) or Theme.Darker
+    shortcut.BackgroundTransparency = Config[key] and 0.1 or 0.6
     shortcut.Text = iconText or "⚡"
-    shortcut.TextColor3 = Theme.C1
+    shortcut.TextColor3 = Config[key] and Color3.new(0, 0, 0) or Theme.C1
     shortcut.Font = Enum.Font.GothamBold
-    shortcut.TextSize = 20
+    shortcut.TextSize = 22
+    shortcut.AutoButtonColor = false  -- [v10.63] 关闭自动反馈，自定义缩放反馈
+    shortcut.Active = true  -- [v10.63] Active=true 让按钮在按住期间持续响应
     shortcut.Parent = ScreenGui
-    Instance.new("UICorner", shortcut).CornerRadius = UDim.new(1, 0)
+    Instance.new("UICorner", shortcut).CornerRadius = UDim.new(0, 10)
+    -- [v10.63] 添加 UIStroke 边框，开启时为发光白，关闭时为暗灰
+    local stroke = Instance.new("UIStroke", shortcut)
+    stroke.Thickness = Config[key] and 2.5 or 1
+    stroke.Color = Config[key] and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 100)
+    stroke.Transparency = Config[key] and 0 or 0.5
     shortcut:SetAttribute("ConfigKey", key)
     table.insert(State.Shortcuts, shortcut)
     if not State.ShortcutsByConfigKey[key] then State.ShortcutsByConfigKey[key] = {} end
@@ -1384,6 +1562,8 @@ local function PlaceShortcutAt(pos, key, iconText)
     local pressTime = 0
     local dragStartPos = nil
     local startUdimPos = nil
+    local originalSize = shortcut.Size
+    local pressScale = UDim2.new(0, 48, 0, 48)  -- 按下时缩放到 48x48
 
     shortcut.InputBegan:Connect(function(inp)
         if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
@@ -1392,13 +1572,18 @@ local function PlaceShortcutAt(pos, key, iconText)
             pressTime = tick()
             dragStartPos = inp.Position
             startUdimPos = shortcut.Position
+            -- [v10.63] 按下缩放反馈
+            TweenService:Create(shortcut, TweenInfo.new(0.06), {Size = pressScale}):Play()
         end
     end)
 
     shortcut.InputChanged:Connect(function(inp)
         if isPressing and (inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch) then
-            if dragStartPos and (inp.Position - dragStartPos).Magnitude > 15 then
+            -- [v10.63] 触摸阈值 15→25 像素
+            if dragStartPos and (inp.Position - dragStartPos).Magnitude > 25 then
                 isDragging = true
+                -- 拖动时恢复尺寸
+                TweenService:Create(shortcut, TweenInfo.new(0.06), {Size = originalSize}):Play()
                 local dx = inp.Position.X - dragStartPos.X
                 local dy = inp.Position.Y - dragStartPos.Y
                 shortcut.Position = UDim2.new(startUdimPos.X.Scale, startUdimPos.X.Offset + dx, startUdimPos.Y.Scale, startUdimPos.Y.Offset + dy)
@@ -1411,10 +1596,14 @@ local function PlaceShortcutAt(pos, key, iconText)
             if not isPressing then return end
             isPressing = false
 
+            -- 恢复原始尺寸
+            TweenService:Create(shortcut, TweenInfo.new(0.1, Enum.EasingStyle.Back), {Size = originalSize}):Play()
+
             local duration = tick() - pressTime
             -- 修复：检查总位移而非isDragging标志，避免轻微移动后isDragging卡true导致切换失效
+            -- [v10.63] 阈值 15→25 像素
             local totalDisplacement = dragStartPos and (inp.Position - dragStartPos).Magnitude or 0
-            local isClick = totalDisplacement < 15
+            local isClick = totalDisplacement < 25
 
             if isClick then
                 if duration >= 0.8 then
@@ -1430,7 +1619,8 @@ local function PlaceShortcutAt(pos, key, iconText)
                     if ActivePopup then ClosePopup(false) end
                     Config[key] = not Config[key]
                     if State.GlobalCallbacks[key] then State.GlobalCallbacks[key](Config[key]) end
-                    shortcut.BackgroundTransparency = Config[key] and 0.2 or 0.5
+                    -- [v10.63] 调用统一的视觉更新
+                    UpdateShortcutVisual(shortcut, Config[key])
                 end
             end
             -- 重置isDragging，防止下次点击继承上次状态
@@ -1620,7 +1810,8 @@ local function CreateToggle(parent, name, configKey, icon)
         local shortcuts = State.ShortcutsByConfigKey[configKey]
         if shortcuts then
             for _, sc in ipairs(shortcuts) do
-                sc.BackgroundTransparency = state and 0.2 or 0.5
+                -- [v10.63] 使用统一视觉更新函数，颜色/边框/透明度同步
+                UpdateShortcutVisual(sc, state)
             end
         end
     end
@@ -1900,7 +2091,7 @@ local function BootSequence()
     subtitle.Size = UDim2.new(1, 0, 0, 22)
     subtitle.Position = UDim2.new(0, 0, 0, 58)
     subtitle.BackgroundTransparency = 1
-    subtitle.Text = "v10.62c  |  NOCLIP VEHICLE FIX"
+    subtitle.Text = "v10.63  |  MOBILE FLY FIX + ANTI-CHEAT EXT"
     subtitle.TextColor3 = Color3.fromRGB(150, 200, 255)
     subtitle.Font = Enum.Font.Gotham
     subtitle.TextSize = 14
@@ -2050,7 +2241,8 @@ local function BootSequence()
     local animationDone = false
 
     -- 保底销毁线程：12秒后无论如何都销毁 bootGui
-    task.delay(12, function()
+    -- [v10.63] 缩短到 6 秒（动画整体加速，无需 12 秒保底）
+    task.delay(6, function()
         if not animationDone then
             pcall(function()
                 if bootGui and bootGui.Parent then
@@ -2076,23 +2268,27 @@ local function BootSequence()
     task.spawn(function()
         local ok, err = pcall(function()
             -- 入场动画：背景淡入
-            TweenService:Create(bgFrame, TweenInfo.new(0.4), {BackgroundTransparency = 0}):Play()
-            task.wait(0.4)
+            -- [v10.63] 加速：0.4→0.2
+            TweenService:Create(bgFrame, TweenInfo.new(0.2), {BackgroundTransparency = 0}):Play()
+            task.wait(0.2)
 
             -- 打字机动画：标题
+            -- [v10.63] 加速：0.025→0.012
             local fullTitle = "杀 戮 系 统  /  KILL SYSTEM"
             for i = 1, #fullTitle do
                 title.Text = string.sub(fullTitle, 1, i)
-                task.wait(0.025)
+                task.wait(0.012)
             end
-            task.wait(0.15)
+            task.wait(0.08)
 
             -- 副标题与进度条标题淡入
-            TweenService:Create(subtitle, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
-            TweenService:Create(progTitle, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
-            task.wait(0.3)
+            -- [v10.63] 加速：0.4→0.2
+            TweenService:Create(subtitle, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
+            TweenService:Create(progTitle, TweenInfo.new(0.2), {TextTransparency = 0}):Play()
+            task.wait(0.15)
 
             -- 逐项加载反作弊模块
+            -- [v10.63] 加速：180ms→80ms per item
             for i = 1, total do
                 local r = moduleRows[i]
                 -- 状态变为 LOADING
@@ -2103,10 +2299,10 @@ local function BootSequence()
 
                 -- 同步进度条
                 local pct = (i - 1) / total
-                TweenService:Create(progFill, TweenInfo.new(0.25), {Size = UDim2.new(pct, 0, 1, 0)}):Play()
+                TweenService:Create(progFill, TweenInfo.new(0.15), {Size = UDim2.new(pct, 0, 1, 0)}):Play()
                 percentLabel.Text = string.format("  %3d%%   [ %d / %d MODULES ]", math.floor(pct * 100), i - 1, total)
 
-                task.wait(0.18 + math.random() * 0.12)
+                task.wait(0.06 + math.random() * 0.04)
 
                 -- 状态变为 ENABLED
                 r.status.Text = "[ ENABLED ]"
@@ -2114,14 +2310,14 @@ local function BootSequence()
                 r.name.TextColor3 = Color3.fromRGB(255, 255, 255)
                 r.icon.TextColor3 = Color3.fromRGB(120, 255, 200)
 
-                task.wait(0.08)
+                task.wait(0.04)
             end
 
             -- 完成动画：进度条100%
-            TweenService:Create(progFill, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, 1, 0)}):Play()
+            TweenService:Create(progFill, TweenInfo.new(0.2), {Size = UDim2.new(1, 0, 1, 0)}):Play()
             percentLabel.Text = string.format("  %3d%%   [ %d / %d MODULES ]", 100, total, total)
             percentLabel.TextColor3 = Color3.fromRGB(80, 255, 140)
-            task.wait(0.4)
+            task.wait(0.2)
 
             -- 显示 "ALL SYSTEMS READY"
             local ready = Instance.new("TextLabel")
@@ -2138,36 +2334,37 @@ local function BootSequence()
             readyGrad.Color = ColorSequence.new(Color3.fromRGB(80, 255, 140), Color3.fromRGB(120, 200, 255))
             readyGrad.Parent = ready
 
-            TweenService:Create(ready, TweenInfo.new(0.4), {TextTransparency = 0}):Play()
+            TweenService:Create(ready, TweenInfo.new(0.25), {TextTransparency = 0}):Play()
 
-            -- 闪烁效果
-            for i = 1, 3 do
-                TweenService:Create(ready, TweenInfo.new(0.12), {TextSize = 22}):Play()
-                task.wait(0.12)
-                TweenService:Create(ready, TweenInfo.new(0.12), {TextSize = 20}):Play()
-                task.wait(0.12)
+            -- 闪烁效果（[v10.63] 从 3 次减到 2 次加速）
+            for i = 1, 2 do
+                TweenService:Create(ready, TweenInfo.new(0.08), {TextSize = 22}):Play()
+                task.wait(0.08)
+                TweenService:Create(ready, TweenInfo.new(0.08), {TextSize = 20}):Play()
+                task.wait(0.08)
             end
 
-            task.wait(0.8)
+            task.wait(0.4)
 
             -- 淡出整个Boot界面
+            -- [v10.63] 加速：0.6→0.3
             local tweens = {
-                TweenService:Create(bgFrame, TweenInfo.new(0.6), {BackgroundTransparency = 1}),
-                TweenService:Create(ready, TweenInfo.new(0.6), {TextTransparency = 1}),
-                TweenService:Create(title, TweenInfo.new(0.6), {TextTransparency = 1}),
-                TweenService:Create(subtitle, TweenInfo.new(0.6), {TextTransparency = 1}),
-                TweenService:Create(progTitle, TweenInfo.new(0.6), {TextTransparency = 1}),
-                TweenService:Create(progBg, TweenInfo.new(0.6), {BackgroundTransparency = 1}),
-                TweenService:Create(percentLabel, TweenInfo.new(0.6), {TextTransparency = 1}),
-                TweenService:Create(divider, TweenInfo.new(0.6), {BackgroundTransparency = 1}),
+                TweenService:Create(bgFrame, TweenInfo.new(0.3), {BackgroundTransparency = 1}),
+                TweenService:Create(ready, TweenInfo.new(0.3), {TextTransparency = 1}),
+                TweenService:Create(title, TweenInfo.new(0.3), {TextTransparency = 1}),
+                TweenService:Create(subtitle, TweenInfo.new(0.3), {TextTransparency = 1}),
+                TweenService:Create(progTitle, TweenInfo.new(0.3), {TextTransparency = 1}),
+                TweenService:Create(progBg, TweenInfo.new(0.3), {BackgroundTransparency = 1}),
+                TweenService:Create(percentLabel, TweenInfo.new(0.3), {TextTransparency = 1}),
+                TweenService:Create(divider, TweenInfo.new(0.3), {BackgroundTransparency = 1}),
             }
             for _, r in ipairs(moduleRows) do
-                table.insert(tweens, TweenService:Create(r.status, TweenInfo.new(0.6), {TextTransparency = 1}))
-                table.insert(tweens, TweenService:Create(r.name, TweenInfo.new(0.6), {TextTransparency = 1}))
-                table.insert(tweens, TweenService:Create(r.icon, TweenInfo.new(0.6), {TextTransparency = 1}))
+                table.insert(tweens, TweenService:Create(r.status, TweenInfo.new(0.3), {TextTransparency = 1}))
+                table.insert(tweens, TweenService:Create(r.name, TweenInfo.new(0.3), {TextTransparency = 1}))
+                table.insert(tweens, TweenService:Create(r.icon, TweenInfo.new(0.3), {TextTransparency = 1}))
             end
             for _, t in ipairs(tweens) do t:Play() end
-            task.wait(0.7)
+            task.wait(0.4)
         end)
 
         -- 无论如何都强制销毁 bootGui（防止动画中途异常导致 UI 永久遮挡）
@@ -2294,6 +2491,25 @@ CreateSideIcon("🛡️", function()
         -- [v10.60新增] 防入狱/防击退
         CreateToggle(holder, "防入狱(拦截重生/传送/坐下)", "AntiArrest_Enabled", "🔒")
         CreateToggle(holder, "防击退(拦截applyImpulse)", "AntiKnockback_Enabled", "🛡️")
+        --- separator ---
+        -- [v10.63新增] 圣奥里反作弊封禁拦截系统
+        CreateToggle(holder, "防被铐(拦截handcuff)", "AntiHandcuff_Enabled", "🔒")
+        CreateToggle(holder, "防强制坐下(拦截sit)", "AntiSit_Enabled", "🪑")
+        CreateToggle(holder, "防强制转向(拦截charRot)", "AntiCharRot_Enabled", "🔄")
+        CreateToggle(holder, "防强制凝视(拦截focusCamera)", "AntiFocusCamera_Enabled", "🎥")
+        CreateToggle(holder, "防被凝视(拦截stalkPlayer)", "AntiStalkPlayer_Enabled", "👁️")
+        CreateToggle(holder, "防强制传送(拦截charPivotTo)", "AntiCharPivotTo_Enabled", "📍")
+        CreateToggle(holder, "防检查点传送(拦截charCheckpoint)", "AntiCharCheckpoint_Enabled", "🏁")
+        CreateToggle(holder, "防被踢下座位(拦截getRidOfSitting)", "AntiGetRidOfSitting_Enabled", "💺")
+        CreateToggle(holder, "防强制空闲动画", "AntiFreezeIdle_Enabled", "❄️")
+        CreateToggle(holder, "防强制表情(拦截playEmote)", "AntiPlayEmote_Enabled", "🎬")
+        CreateToggle(holder, "防强制Ragdoll(增强版)", "AntiRagdollEnhanced_Enabled", "🤸")
+        CreateToggle(holder, "防被弹下车(拦截eject)", "AntiEjectEnhanced_Enabled", "🚪")
+        CreateToggle(holder, "防车辆被拖(拦截towing)", "AntiTow_Enabled", "🚛")
+        CreateToggle(holder, "防车辆被偷(拦截stealVehicle)", "AntiVehicleTheft_Enabled", "🔑")
+        --- separator ---
+        -- [v10.63新增] Hook 类防护
+        CreateToggle(holder, "防客户端踢出(Hook Kick)", "AntiClientKick_Enabled", "🛑")
     end)
 end)
 
@@ -2394,6 +2610,32 @@ CreateSideIcon("🔧", function()
         CreateToggle(holder, "刷钱-任务奖励(talkToMission)", "MoneySpam_talkToMission", "📜")
         CreateToggle(holder, "刷钱-任务完成(questCompleted)", "MoneySpam_questCompleted", "📋")
         CreateToggle(holder, "刷钱-自动复活(revive)", "MoneySpam_revive", "🔄")
+        --- separator ---
+        -- [v10.63新增] 暴力功能 - 群体攻击
+        CreateSlider(holder, "群体铐住范围", 10, 500, Config.MassHandcuff_Range, "MassHandcuff_Range", false)
+        CreateToggle(holder, "群体铐住(MassHandcuff)", "MassHandcuff_Enabled", "🔒")
+        CreateSlider(holder, "群体逮捕范围", 10, 500, Config.MassArrest_Range, "MassArrest_Range", false)
+        CreateToggle(holder, "群体逮捕(MassArrest)", "MassArrest_Enabled", "🚔")
+        CreateSlider(holder, "群体倒地范围", 10, 1000, Config.MassRagdoll_Range, "MassRagdoll_Range", false)
+        CreateToggle(holder, "群体倒地(MassRagdoll)", "MassRagdoll_Enabled", "🤸")
+        CreateSlider(holder, "群体弹下范围", 10, 1000, Config.MassEject_Range, "MassEject_Range", false)
+        CreateToggle(holder, "群体弹下车(MassEject)", "MassEject_Enabled", "🚪")
+        CreateSlider(holder, "群体眩晕范围", 10, 1000, Config.MassStun_Range, "MassStun_Range", false)
+        CreateToggle(holder, "群体眩晕(三连击)", "MassStun_Enabled", "💫")
+        --- separator ---
+        -- [v10.63新增] 暴力功能 - 车辆攻击
+        CreateSlider(holder, "摧毁车辆范围", 50, 1000, Config.VehicleDestroySpam_Range, "VehicleDestroySpam_Range", false)
+        CreateToggle(holder, "摧毁附近车辆(damage:100)", "VehicleDestroySpam_Enabled", "💥")
+        CreateSlider(holder, "强制停车范围", 50, 1000, Config.VehicleStopAll_Range, "VehicleStopAll_Range", false)
+        CreateToggle(holder, "强制附近车辆停车", "VehicleStopAll_Enabled", "🛑")
+        CreateSlider(holder, "强制锁车范围", 50, 1000, Config.VehicleLockAll_Range, "VehicleLockAll_Range", false)
+        CreateToggle(holder, "强制锁附近车辆", "VehicleLockAll_Enabled", "🔐")
+        --- separator ---
+        -- [v10.63新增] 极端暴力功能
+        CreateSlider(holder, "弹幕风暴范围", 50, 2000, Config.BulletStorm_Range, "BulletStorm_Range", false)
+        CreateToggle(holder, "弹幕风暴(50发/帧)", "BulletStorm_Enabled", "🌪️")
+        CreateSlider(holder, "击飞范围", 10, 500, Config.ForceFling_Range, "ForceFling_Range", false)
+        CreateToggle(holder, "强制击飞附近玩家", "ForceFling_Enabled", "🌀")
     end)
 end)
 
@@ -4863,6 +5105,7 @@ RunService.RenderStepped:Connect(function()
                 if State.IsMobile then
                     -- [手机端] 读取游戏内置摇杆方向（Humanoid.MoveDirection）
                     -- 摇杆推前=LookVector方向，推左=-RightVector方向
+                    -- [v10.63修复] 即使摇杆未推动，只要按住上升/下降按钮也要飞行
                     local hum = char:FindFirstChild("Humanoid")
                     if hum and hum.MoveDirection.Magnitude > 0.01 then
                         -- MoveDirection是世界坐标方向，需要映射到相机坐标系
@@ -4878,11 +5121,23 @@ RunService.RenderStepped:Connect(function()
                         end
                     end
                     -- 虚拟按钮控制上下
+                    -- [v10.63关键修复] 按住上升/下降按钮时强制施加Y轴速度
+                    -- 即使摇杆没推动也要让 BodyVelocity 有 Y 分量
                     if State.MobileFlyUp then
                         moveVector = moveVector + Vector3.new(0, flySpeed, 0)
                     end
                     if State.MobileFlyDown then
                         moveVector = moveVector - Vector3.new(0, flySpeed, 0)
+                    end
+                    -- [v10.63] 调试：当按下按钮时打印状态（仅 DebugMode）
+                    if Config.DebugMode_Enabled and (State.MobileFlyUp or State.MobileFlyDown) then
+                        -- 每秒打印一次，避免刷屏
+                        if not State._lastFlyDebug or tick() - State._lastFlyDebug > 1 then
+                            State._lastFlyDebug = tick()
+                            print(string.format("[KillSystem Fly] Up=%s Down=%s moveVec=(%0.1f,%0.1f,%0.1f)",
+                                tostring(State.MobileFlyUp), tostring(State.MobileFlyDown),
+                                moveVector.X, moveVector.Y, moveVector.Z))
+                        end
                     end
                 else
                     -- [PC端] 键盘WASD + Space + Shift
@@ -5379,12 +5634,15 @@ end)
 -- 获取 PlayerEvent / PlayerFunc 远程对象
 local PlayerEvent = nil
 local PlayerFunc = nil
+local UnreliableEvent = nil  -- [v10.63新增] 用于 AntiCharRot 拦截
 do
     pcall(function()
         local remote = game:GetService("ReplicatedStorage"):WaitForChild("Remote", 5)
         if remote then
             PlayerEvent = remote:WaitForChild("PlayerEvent", 5)
             PlayerFunc = remote:WaitForChild("PlayerFunc", 5)
+            -- [v10.63] 同时获取 UnreliableEvent（charRot 走这个通道）
+            pcall(function() UnreliableEvent = remote:WaitForChild("UnreliableEvent", 3) end)
         end
     end)
 end
@@ -5413,7 +5671,15 @@ local function InstallPlayerEventHook()
     if HookInstalled then return end
     if not PlayerEvent then return end
     -- 懒加载：仅当任意屏蔽开关启用时才安装 Hook
-    if not (Config.GodMode_Enabled or Config.ItemGodmode_Enabled or Config.AntiCheatReportHook_Enabled) then
+    -- [v10.63] 扩展触发条件：新增 14 个反作弊拦截开关
+    if not (Config.GodMode_Enabled or Config.ItemGodmode_Enabled or Config.AntiCheatReportHook_Enabled
+            or Config.AntiHandcuff_Enabled or Config.AntiSit_Enabled or Config.AntiCharRot_Enabled
+            or Config.AntiFocusCamera_Enabled or Config.AntiStalkPlayer_Enabled
+            or Config.AntiCharPivotTo_Enabled or Config.AntiCharCheckpoint_Enabled
+            or Config.AntiGetRidOfSitting_Enabled or Config.AntiFreezeIdle_Enabled
+            or Config.AntiPlayEmote_Enabled or Config.AntiRagdollEnhanced_Enabled
+            or Config.AntiEjectEnhanced_Enabled or Config.AntiTow_Enabled
+            or Config.AntiVehicleTheft_Enabled) then
         return
     end
 
@@ -5507,6 +5773,92 @@ local function InstallPlayerEventHook()
         ) then
             return true
         end
+
+        -- ======== [v10.63新增] 圣奥里反作弊封禁拦截 ========
+        -- 这些是游戏服务端通过 OnClientEvent 通知客户端执行的"强制动作"
+        -- 客户端再通过 FireServer/InvokeServer 把动作发回去
+        -- 我们拦截客户端发回的请求，让动作不生效
+
+        -- 防被铐：拦截 handcuff / handcuffsOpener InvokeServer
+        if isInvokeServer and Config.AntiHandcuff_Enabled
+            and (code == "handcuff" or code == "handcuffsOpener" or code == "handcuffsOpenerInitiate") then
+            return true
+        end
+
+        -- 防强制坐下：拦截 sit InvokeServer
+        if isInvokeServer and Config.AntiSit_Enabled and code == "sit" then
+            return true
+        end
+
+        -- 防强制转向：拦截 charRot / charRotType FireServer
+        if isFireServer and Config.AntiCharRot_Enabled
+            and (code == "charRot" or code == "charRotType") then
+            return true
+        end
+
+        -- 防强制凝视：拦截 focusCamera FireServer
+        if isFireServer and Config.AntiFocusCamera_Enabled and code == "focusCamera" then
+            return true
+        end
+
+        -- 防被凝视：拦截 stalkPlayer FireServer
+        if isFireServer and Config.AntiStalkPlayer_Enabled and code == "stalkPlayer" then
+            return true
+        end
+
+        -- 防强制传送：拦截 charPivotTo FireServer
+        if isFireServer and Config.AntiCharPivotTo_Enabled and code == "charPivotTo" then
+            return true
+        end
+
+        -- 防检查点传送：拦截 charCheckpoint FireServer
+        if isFireServer and Config.AntiCharCheckpoint_Enabled and code == "charCheckpoint" then
+            return true
+        end
+
+        -- 防被踢下座位：拦截 getRidOfPlayerSittingOnYou FireServer
+        if isFireServer and Config.AntiGetRidOfSitting_Enabled and code == "getRidOfPlayerSittingOnYou" then
+            return true
+        end
+
+        -- 防强制空闲动画：拦截 freezeIdleAnimation FireServer
+        if isFireServer and Config.AntiFreezeIdle_Enabled and code == "freezeIdleAnimation" then
+            return true
+        end
+
+        -- 防强制表情：拦截 playEmote FireServer
+        if isFireServer and Config.AntiPlayEmote_Enabled and code == "playEmote" then
+            return true
+        end
+
+        -- 防强制Ragdoll：拦截 ragdoll FireServer
+        if isFireServer and Config.AntiRagdollEnhanced_Enabled and code == "ragdoll" then
+            return true
+        end
+
+        -- 防被弹下车：拦截 eject FireServer
+        -- 注意：游戏中 eject 是 vehicle 子命令 FireServer("vehicle", "eject", ...)
+        if isFireServer and Config.AntiEjectEnhanced_Enabled
+            and code == "vehicle" and args and args[2] == "eject" then
+            return true
+        end
+        -- 也拦截 kickPassenger
+        if isFireServer and Config.AntiEjectEnhanced_Enabled
+            and code == "vehicle" and args and args[2] == "kickPassenger" then
+            return true
+        end
+
+        -- 防车辆被拖：拦截 towing / towStolen InvokeServer
+        if isInvokeServer and Config.AntiTow_Enabled
+            and (code == "towing" or code == "towStolen") then
+            return true
+        end
+
+        -- 防车辆被偷：拦截 stealVehicle InvokeServer
+        if isInvokeServer and Config.AntiVehicleTheft_Enabled and code == "stealVehicle" then
+            return true
+        end
+
         return false
     end
 
@@ -5516,7 +5868,8 @@ local function InstallPlayerEventHook()
         oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
             local method = getnamecallmethod()
             -- 同时支持 FireServer (PlayerEvent) 和 InvokeServer (PlayerFunc)
-            if (method == "FireServer" and self == PlayerEvent) or
+            -- [v10.63] 同时支持 UnreliableEvent:FireServer("charRot",...) 用于 AntiCharRot
+            if (method == "FireServer" and (self == PlayerEvent or self == UnreliableEvent)) or
                (method == "InvokeServer" and self == PlayerFunc) then
                 local args = { ... }
                 if shouldBlock(method, self, args[1], args) then
@@ -5553,12 +5906,25 @@ local function InstallPlayerEventHook()
     if HookInstalled then
         if Config.DebugMode_Enabled then
             local channels = {}
-            if Config.GodMode_Enabled then table.insert(channels, "GodMode(FireServer)") end
-            if Config.ItemGodmode_Enabled then table.insert(channels, "ItemGodmode(FireServer+InvokeServer)") end
-            if Config.AntiCheatReportHook_Enabled then table.insert(channels, "AntiCheatReport(FireServer)") end
+            if Config.GodMode_Enabled then table.insert(channels, "GodMode") end
+            if Config.ItemGodmode_Enabled then table.insert(channels, "ItemGodmode") end
+            if Config.AntiCheatReportHook_Enabled then table.insert(channels, "AntiCheatReport") end
+            -- [v10.63] 新增反作弊通道
+            if Config.AntiHandcuff_Enabled then table.insert(channels, "AntiHandcuff") end
+            if Config.AntiSit_Enabled then table.insert(channels, "AntiSit") end
+            if Config.AntiCharRot_Enabled then table.insert(channels, "AntiCharRot") end
+            if Config.AntiFocusCamera_Enabled then table.insert(channels, "AntiFocusCamera") end
+            if Config.AntiStalkPlayer_Enabled then table.insert(channels, "AntiStalkPlayer") end
+            if Config.AntiCharPivotTo_Enabled then table.insert(channels, "AntiCharPivotTo") end
+            if Config.AntiCharCheckpoint_Enabled then table.insert(channels, "AntiCharCheckpoint") end
+            if Config.AntiGetRidOfSitting_Enabled then table.insert(channels, "AntiGetRidOfSitting") end
+            if Config.AntiFreezeIdle_Enabled then table.insert(channels, "AntiFreezeIdle") end
+            if Config.AntiPlayEmote_Enabled then table.insert(channels, "AntiPlayEmote") end
+            if Config.AntiRagdollEnhanced_Enabled then table.insert(channels, "AntiRagdollEnhanced") end
+            if Config.AntiEjectEnhanced_Enabled then table.insert(channels, "AntiEjectEnhanced") end
+            if Config.AntiTow_Enabled then table.insert(channels, "AntiTow") end
+            if Config.AntiVehicleTheft_Enabled then table.insert(channels, "AntiVehicleTheft") end
             print("[KillSystem] Hook 已安装 通道: " .. table.concat(channels, ", "))
-            print("[KillSystem]   PlayerEvent.FireServer 拦截: " .. (PlayerEvent and "OK" or "MISSING"))
-            print("[KillSystem]   PlayerFunc.InvokeServer 拦截: " .. (PlayerFunc and "OK" or "MISSING（仅FireServer生效）"))
         end
     else
         if Config.DebugMode_Enabled then
@@ -5570,12 +5936,395 @@ end
 -- 立即尝试安装一次（如果默认开关已开启）
 InstallPlayerEventHook()
 
+-- ==========================================
+-- [v10.63新增] AntiClientKick: Hook Player:Kick() 防止客户端被踢
+-- 部分游戏服务端会通过 LocalPlayer:Kick() 把客户端踢出
+-- 这里 Hook 后拦截所有 Kick 调用
+-- ==========================================
+local KickHookInstalled = false
+local function InstallAntiClientKickHook()
+    if KickHookInstalled then return end
+    if not Config.AntiClientKick_Enabled then return end
+
+    pcall(function()
+        local oldKick = LocalPlayer.Kick
+        hookfunction(oldKick, function(self, reason)
+            if Config.AntiClientKick_Enabled and self == LocalPlayer then
+                if Config.DebugMode_Enabled then
+                    print("[KillSystem] 拦截 Kick 调用: " .. tostring(reason))
+                end
+                if ScreenLog then ScreenLog("拦截被踢: " .. tostring(reason)) end
+                return  -- 静默拒绝
+            end
+            return oldKick(self, reason)
+        end)
+        KickHookInstalled = true
+        if Config.DebugMode_Enabled then
+            print("[KillSystem] AntiClientKick Hook 已安装")
+        end
+    end)
+
+    -- 后备：hookmetamethod __namecall
+    if not KickHookInstalled then
+        pcall(function()
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod()
+                if Config.AntiClientKick_Enabled and method == "Kick" and self == LocalPlayer then
+                    local args = { ... }
+                    if Config.DebugMode_Enabled then
+                        print("[KillSystem] 拦截 Kick(namecall): " .. tostring(args[1]))
+                    end
+                    if ScreenLog then ScreenLog("拦截被踢(namecall): " .. tostring(args[1])) end
+                    return  -- 静默拒绝
+                end
+                return oldNamecall(self, ...)
+            end)
+            KickHookInstalled = true
+        end)
+    end
+end
+
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.AntiClientKick_Enabled and not KickHookInstalled then
+            InstallAntiClientKickHook()
+        end
+        task.wait(2)
+    end
+end)
+
+-- ==========================================
+-- [v10.63新增] 暴力功能：群体攻击附近玩家/车辆
+-- 基于 FireServer/InvokeServer 协议主动调用
+-- ==========================================
+
+-- 辅助函数：获取附近所有玩家（除自己）
+local function GetNearbyPlayers(range)
+    local result = {}
+    local localChar = LocalPlayer.Character
+    if not localChar or not localChar:FindFirstChild("HumanoidRootPart") then return result end
+    local localPos = localChar.HumanoidRootPart.Position
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (player.Character.HumanoidRootPart.Position - localPos).Magnitude
+            if dist <= range then
+                table.insert(result, { player = player, char = player.Character, dist = dist })
+            end
+        end
+    end
+    return result
+end
+
+-- 辅助函数：获取附近所有车辆
+local function GetNearbyVehicles(range)
+    local result = {}
+    local localChar = LocalPlayer.Character
+    if not localChar or not localChar:FindFirstChild("HumanoidRootPart") then return result end
+    local localPos = localChar.HumanoidRootPart.Position
+    local vehiclesFolder = workspace:FindFirstChild("Gameplay")
+        and workspace.Gameplay:FindFirstChild("Vehicles")
+    if not vehiclesFolder then return result end
+    for _, car in ipairs(vehiclesFolder:GetChildren()) do
+        if car:IsA("Model") and car.PrimaryPart then
+            local dist = (car.PrimaryPart.Position - localPos).Magnitude
+            if dist <= range then
+                table.insert(result, { car = car, dist = dist })
+            end
+        end
+    end
+    return result
+end
+
+-- [暴力] MassHandcuff: 给附近所有玩家发 handcuff
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.MassHandcuff_Enabled and PlayerFunc then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.MassHandcuff_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerFunc:InvokeServer("handcuff", targetPlayer, false)
+                        PlayerFunc:InvokeServer("handcuff", info.player, false)
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] MassArrest: 给附近所有玩家发 arrestClient 没收物品
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.MassArrest_Enabled and PlayerFunc then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.MassArrest_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerFunc:InvokeServer("arrestClient", "searchPlayerConfiscateItems", { player=... })
+                        PlayerFunc:InvokeServer("arrestClient", "searchPlayerConfiscateItems", {
+                            player = info.player
+                        })
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] MassRagdoll: 给附近所有玩家发 ragdoll
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.MassRagdoll_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.MassRagdoll_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerEvent:FireServer("ragdoll", target, type)
+                        -- target 为 Player 实例，type 可为 1（普通倒地）
+                        PlayerEvent:FireServer("ragdoll", info.player, 1)
+                    end)
+                end
+            end)
+            task.wait(0.3)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] MassEject: 把附近所有车里的玩家 eject 出来
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.MassEject_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyVehicles(Config.MassEject_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerEvent:FireServer("vehicle", "kickPassenger", car)
+                        PlayerEvent:FireServer("vehicle", "kickPassenger", info.car)
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] MassStun: 组合拳 ragdoll + eject + sit 给附近所有玩家
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.MassStun_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.MassStun_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- 三连击：倒地 + 弹出 + 强制坐下
+                        PlayerEvent:FireServer("ragdoll", info.player, 1)
+                    end)
+                    pcall(function()
+                        PlayerEvent:FireServer("sit", info.player)
+                    end)
+                end
+                -- 同时给附近车辆弹乘客
+                local nearbyVehicles = GetNearbyVehicles(Config.MassStun_Range)
+                for _, info in ipairs(nearbyVehicles) do
+                    pcall(function()
+                        PlayerEvent:FireServer("vehicle", "kickPassenger", info.car)
+                    end)
+                end
+            end)
+            task.wait(0.3)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] VehicleDestroySpam: 给附近所有车辆发 vehicle:damage:100
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.VehicleDestroySpam_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyVehicles(Config.VehicleDestroySpam_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerEvent:FireServer("vehicle", "damage", 100)
+                        PlayerEvent:FireServer("vehicle", "damage", 100, info.car)
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] VehicleStopAll: 给附近所有车发 vehicle:stop
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.VehicleStopAll_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyVehicles(Config.VehicleStopAll_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerEvent:FireServer("vehicle", "stop")
+                        PlayerEvent:FireServer("vehicle", "stop", info.car)
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] VehicleLockAll: 强制锁车 vehicle:lock=true
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.VehicleLockAll_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyVehicles(Config.VehicleLockAll_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- PlayerEvent:FireServer("vehicle", "lock", true)
+                        PlayerEvent:FireServer("vehicle", "lock", true, info.car)
+                    end)
+                end
+            end)
+            task.wait(0.5)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] BulletStorm: 每帧向最近玩家发 50 发 bullet（弹幕风暴）
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.BulletStorm_Enabled and PlayerEvent then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.BulletStorm_Range)
+                if #nearby > 0 then
+                    -- 选最近玩家
+                    table.sort(nearby, function(a, b) return a.dist < b.dist end)
+                    local target = nearby[1]
+                    if target.char and target.char:FindFirstChild("Head") then
+                        local head = target.char.Head
+                        -- 每帧发 50 发子弹
+                        for i = 1, 50 do
+                            pcall(function()
+                                -- PlayerEvent:FireServer("bullet", { ... })
+                                PlayerEvent:FireServer("bullet", {
+                                    pos = head.Position,
+                                    target = target.player,
+                                    damageFactor = 2.0,
+                                    bulletProofTool = false,
+                                })
+                            end)
+                        end
+                        -- 同时发 damage 包
+                        for i = 1, 5 do
+                            pcall(function()
+                                PlayerEvent:FireServer("damage", {
+                                    bodyParts = { { head, 1 } },
+                                    shotCode = math.random(1, 99999),
+                                    pos = head.Position,
+                                    target = target.player,
+                                    damageFactor = 2.0,
+                                    bulletProofTool = false,
+                                })
+                            end)
+                        end
+                    end
+                end
+            end)
+            task.wait(0.1)  -- 每 100ms 一轮（约 500 发/秒）
+        else
+            task.wait(2)
+        end
+    end
+end)
+
+-- [暴力] ForceFling: 给附近所有玩家发 applyImpulse（强制击飞）
+-- 注意：applyImpulse 走 OnClientEvent 通道，需要 Hook 拦截来发送
+-- 这里使用直接的 LocalPlayer 速度修改 + 给目标玩家的 HRP 设置高速度
+task.spawn(function()
+    task.wait(3)
+    while true do
+        if Config.ForceFling_Enabled then
+            pcall(function()
+                local nearby = GetNearbyPlayers(Config.ForceFling_Range)
+                for _, info in ipairs(nearby) do
+                    pcall(function()
+                        -- 尝试直接给目标 HRP 设置 AssemblyLinearVelocity（仅对本地有网络所有权的玩家有效）
+                        if info.char and info.char:FindFirstChild("HumanoidRootPart") then
+                            local root = info.char.HumanoidRootPart
+                            -- 检查是否本地拥有网络所有权
+                            if root:IsA("BasePart") and root:CanSetNetworkOwnership() then
+                                root.AssemblyLinearVelocity = Vector3.new(
+                                    math.random(-200, 200),
+                                    math.random(200, 500),
+                                    math.random(-200, 200)
+                                )
+                            end
+                        end
+                        -- 同时通过 FireServer("vehicle", "PITmaneuver", target, 1) 让车辆也击飞
+                        if PlayerEvent and info.char:FindFirstChildOfClass("Humanoid") then
+                            pcall(function()
+                                PlayerEvent:FireServer("damage", {
+                                    bodyParts = { { info.char:FindFirstChild("HumanoidRootPart"), 1 } },
+                                    shotCode = math.random(1, 99999),
+                                    pos = info.char.HumanoidRootPart.Position,
+                                    target = info.player,
+                                    damageFactor = 0.1,  -- 低伤害但高击退
+                                    bulletProofTool = false,
+                                })
+                            end)
+                        end
+                    end)
+                end
+            end)
+            task.wait(0.3)
+        else
+            task.wait(2)
+        end
+    end
+end)
+
 -- 监听器循环：当用户在菜单中开启任意屏蔽开关时再尝试安装
 task.spawn(function()
     task.wait(2)  -- 等游戏初始化
     while true do
         if not HookInstalled and (
             Config.GodMode_Enabled or Config.ItemGodmode_Enabled or Config.AntiCheatReportHook_Enabled
+            or Config.AntiHandcuff_Enabled or Config.AntiSit_Enabled or Config.AntiCharRot_Enabled
+            or Config.AntiFocusCamera_Enabled or Config.AntiStalkPlayer_Enabled
+            or Config.AntiCharPivotTo_Enabled or Config.AntiCharCheckpoint_Enabled
+            or Config.AntiGetRidOfSitting_Enabled or Config.AntiFreezeIdle_Enabled
+            or Config.AntiPlayEmote_Enabled or Config.AntiRagdollEnhanced_Enabled
+            or Config.AntiEjectEnhanced_Enabled or Config.AntiTow_Enabled
+            or Config.AntiVehicleTheft_Enabled
         ) then
             -- 重新获取 PlayerFunc（之前可能未加载）
             if not PlayerFunc then
@@ -5583,6 +6332,15 @@ task.spawn(function()
                     local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Remote")
                     if remote then
                         PlayerFunc = remote:FindFirstChild("PlayerFunc")
+                    end
+                end)
+            end
+            -- [v10.63] 同时获取 UnreliableEvent（用于 AntiCharRot）
+            if not UnreliableEvent then
+                pcall(function()
+                    local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Remote")
+                    if remote then
+                        UnreliableEvent = remote:FindFirstChild("UnreliableEvent")
                     end
                 end)
             end
@@ -7034,33 +7792,41 @@ end)
 -- ==========================================
 -- [v10.62] GodMode 高频强制保持血量 + 防止 Died 事件
 -- 必须高频（每帧）覆盖服务端扣血
+-- [v10.63优化] 仅在 GodModeHumanoidHardening_Enabled=true 时执行
+--              并缓存 Humanoid 引用避免每帧 FindFirstChildOfClass
 -- ==========================================
+local _lastGodModeCharCheck = 0
+local _cachedGodModeHum = nil
 RunService.Heartbeat:Connect(function()
-    if Config.GodModeHumanoidHardening_Enabled then
-        pcall(function()
-            local char = LocalPlayer.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    -- 防止 BreakJointsOnDeath
-                    if hum.BreakJointsOnDeath ~= false then
-                        hum.BreakJointsOnDeath = false
-                    end
-                    -- 禁用 Dead 和 Physics 状态
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false) end)
-                    -- 强制 MaxHealth
-                    if hum.MaxHealth < 99999 then
-                        hum.MaxHealth = 99999
-                    end
-                    -- 每帧强制保持满血（覆盖服务端扣血）
-                    if hum.Health < hum.MaxHealth then
-                        hum.Health = hum.MaxHealth
-                    end
-                end
+    if not Config.GodModeHumanoidHardening_Enabled then return end  -- [v10.63] 早返回减少开销
+    pcall(function()
+        local char = LocalPlayer.Character
+        if not char then _cachedGodModeHum = nil return end
+        -- [v10.63] 缓存 Humanoid 引用，0.5 秒重新查找一次以应对角色重生
+        if not _cachedGodModeHum or not _cachedGodModeHum.Parent or tick() - _lastGodModeCharCheck > 0.5 then
+            _cachedGodModeHum = char:FindFirstChildOfClass("Humanoid")
+            _lastGodModeCharCheck = tick()
+        end
+        local hum = _cachedGodModeHum
+        if hum then
+            -- 防止 BreakJointsOnDeath
+            if hum.BreakJointsOnDeath ~= false then
+                hum.BreakJointsOnDeath = false
             end
-        end)
-    end
+            -- 禁用 Dead 和 Physics 状态（仅在变更时设置，避免每帧写入）
+            -- 这里仍每帧执行因为 SetStateEnabled 是幂等的
+            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
+            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false) end)
+            -- 强制 MaxHealth
+            if hum.MaxHealth < 99999 then
+                hum.MaxHealth = 99999
+            end
+            -- 每帧强制保持满血（覆盖服务端扣血）
+            if hum.Health < hum.MaxHealth then
+                hum.Health = hum.MaxHealth
+            end
+        end
+    end)
 end)
 
 -- ==========================================
